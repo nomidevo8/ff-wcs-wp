@@ -226,10 +226,33 @@ class SubscriptionCreator {
         $subscription->set_billing_first_name($insertData[$map['first_name'] ?? 'donpr_names.first_name'] ?? '');
         $subscription->set_billing_last_name($insertData[$map['last_name'] ?? 'donpr_names.last_name'] ?? '');
 
-        // Optional: set billing day
-        if (isset($insertData[$map['billing_day'] ?? 'billing_day'])) {
-            update_post_meta($subscription->get_id(), '_billing_day', $insertData[$map['billing_day']] ?? '');
+        // Optional: set billing start date
+        $start_date_input = $insertData[$map['billing_start_date'] ?? 'billing_start_date'] ?? '';
+
+        if (!empty($start_date_input)) {
+            // Parse the submitted date
+            $start_timestamp = strtotime($start_date_input);
+
+            if ($start_timestamp && $start_timestamp > time()) {
+                // WooCommerce Subscriptions expects MySQL datetime format
+                $start_date_mysql = date('Y-m-d H:i:s', $start_timestamp);
+
+                // Update the start date using official API
+                $subscription->update_dates([
+                    'start' => $start_date_mysql,
+                ]);
+
+                // Also, adjust next payment to match start date (optional)
+                $subscription->update_dates([
+                    'next_payment' => $start_date_mysql,
+                ]);
+
+                error_log('FFWCS: Subscription start date set to ' . $start_date_mysql);
+            } else {
+                error_log('FFWCS: Invalid or past billing start date — using default.');
+            }
         }
+
 
         // Save donor & blog info
         update_post_meta($subscription->get_id(), '_ffwcs_donor_email', $insertData[$map['email'] ?? 'donor_email'] ?? '');

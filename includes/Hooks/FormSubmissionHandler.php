@@ -13,6 +13,7 @@ class FormSubmissionHandler {
 
     public function __construct() {
         add_action('fluentform/submission_inserted', [ $this, 'handle_submission' ], 10, 3);
+        add_filter('fluentform/validate_input_item_billing_start_date', [ $this, 'validate_billing_start_date' ], 10, 4);
     }
 
     public function handle_submission($insertId, $insertData, $form) {
@@ -82,10 +83,10 @@ class FormSubmissionHandler {
         $checkout_url = $creator->create_from_submission($user_id, $product_id, $insertData, $map);
         
         // Redirect to checkout if URL is returned
-        if ($checkout_url) {
-            wp_redirect($checkout_url);
-            exit;
-        }
+        // if ($checkout_url) {
+        //     wp_redirect($checkout_url);
+        //     exit;
+        // }
     }
 
     /**
@@ -151,6 +152,10 @@ class FormSubmissionHandler {
         update_option($option_key, $product_id);
         
         return $product_id;
+    }
+
+    public function validate_billing_start_date($error, $field, $formData, $form) {
+        return null;
     }
 
 }

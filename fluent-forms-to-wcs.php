@@ -27,3 +27,9 @@ add_action('wp_enqueue_scripts', 'ffwcs_enqueue_styles');
 function ffwcs_enqueue_styles() {
     wp_enqueue_style('ffwcs-styles', plugins_url('assets/css/dev-style.css', __FILE__));
 }
+
+// Enqeue the JavaScript
+add_action('wp_enqueue_scripts', 'ffwcs_enqueue_scripts');
+function ffwcs_enqueue_scripts() {
+    wp_enqueue_script('ffwcs-scripts', plugins_url('assets/js/dev-script.js', __FILE__), array('jquery'), null, true);
+}
