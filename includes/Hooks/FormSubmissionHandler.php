@@ -61,47 +61,88 @@ class FormSubmissionHandler {
         // Get or create appropriate product based on donation type
         $frequency = trim(strtolower($insertData[$map['billing_period'] ?? 'frequency'] ?? ''));
         
-        $product_id = isset($opts['product_id']) ? absint($opts['product_id']) : 0;
-
+        // Get or create reusable products
+        $product_id = $this->get_or_create_product($frequency);
+        
         if (!$product_id) {
-            // Create product based on frequency
-            if ($frequency === 'one time') {
-                // Create simple product for one-time donations
-                $product = new \WC_Product_Simple();
-                $product->set_name('One-Time Donation');
-                $product->set_status('publish');
-                $product->set_regular_price(0); 
-                $product->set_virtual(true);
-                $product->set_downloadable(false);
-                $product_id = $product->save();
-                error_log('FFWCS: Created simple product for one-time donation. ID: ' . $product_id);
-            } else {
-                // Create subscription product for recurring donations
-                if (!class_exists('WC_Product_Subscription')) {
-                    error_log('FFWCS: WC_Product_Subscription class not found. Please install WooCommerce Subscriptions.');
-                    return;
-                }
-                
-                $product = new \WC_Product_Subscription();
-                $product->set_name('Recurring Donation Subscription');
-                $product->set_status('publish');
-                $product->set_regular_price(0);
-                $product->set_virtual(true);
-                $product->set_downloadable(false);
-                
-                // Set default subscription parameters (will be overridden per donation)
-                $product->update_meta_data('_subscription_period', 'month');
-                $product->update_meta_data('_subscription_period_interval', '1');
-                $product->update_meta_data('_subscription_length', '0'); // Never expires
-                
-                $product_id = $product->save();
-                error_log('FFWCS: Created subscription product for recurring donation. ID: ' . $product_id);
-            }
+            error_log('FFWCS: Failed to get or create product.');
+            return;
         }
 
         // Create subscriptions or orders
         $creator = new SubscriptionCreator();
-        $creator->create_from_submission($user_id, $product_id, $insertData, $map);
+        $checkout_url = $creator->create_from_submission($user_id, $product_id, $insertData, $map);
+        
+        // Redirect to checkout if URL is returned
+        if ($checkout_url) {
+            wp_redirect($checkout_url);
+            exit;
+        }
+    }
+
+    /**
+     * Get or create reusable products (only 2 products total: one simple, one subscription)
+     * 
+     * @param string $frequency 'one time' or 'regularly'
+     * @return int Product ID
+     */
+    private function get_or_create_product($frequency) {
+        $option_key = ($frequency === 'one time') 
+            ? 'ffwcs_onetime_product_id' 
+            : 'ffwcs_subscription_product_id';
+        
+        // Check if product already exists in options
+        $product_id = get_option($option_key, 0);
+        
+        // Verify product still exists
+        if ($product_id) {
+            $product = wc_get_product($product_id);
+            if ($product) {
+                error_log('FFWCS: Using existing product. ID: ' . $product_id);
+                return $product_id;
+            }
+        }
+        
+        // Create new product if doesn't exist
+        if ($frequency === 'one time') {
+            // Create simple product for one-time donations
+            $product = new \WC_Product_Simple();
+            $product->set_name('One-Time Donation');
+            $product->set_status('publish');
+            $product->set_regular_price(0); 
+            $product->set_virtual(true);
+            $product->set_downloadable(false);
+            $product->set_sold_individually(true);
+            $product_id = $product->save();
+            error_log('FFWCS: Created simple product for one-time donations. ID: ' . $product_id);
+        } else {
+            // Create subscription product for recurring donations
+            if (!class_exists('WC_Product_Subscription')) {
+                error_log('FFWCS: WC_Product_Subscription class not found. Please install WooCommerce Subscriptions.');
+                return 0;
+            }
+            
+            $product = new \WC_Product_Subscription();
+            $product->set_name('Recurring Donation Subscription');
+            $product->set_status('publish');
+            $product->set_regular_price(0);
+            $product->set_virtual(true);
+            $product->set_downloadable(false);
+            $product->set_sold_individually(true);
+            
+            // Set default subscription parameters (will be overridden per donation)
+            $product->update_meta_data('_subscription_period', 'month');
+            $product->update_meta_data('_subscription_period_interval', '1');
+            $product->update_meta_data('_subscription_length', '0'); // Never expires
+            
+            $product_id = $product->save();
+            error_log('FFWCS: Created subscription product for recurring donations. ID: ' . $product_id);
+        }
+        
+        // Save product ID to options for reuse
+        update_option($option_key, $product_id);
+        
+        return $product_id;
     }
 
 }
