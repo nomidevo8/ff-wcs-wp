@@ -48,15 +48,23 @@ class FormSubmissionHandler {
             return $cur;
         };
 
-        $email = $get($map['email'] ?? '');
-        if (empty($email)) return; // email required
+        // Check if user is already logged in
+        $user_id = get_current_user_id();
+        
+        if (!$user_id) {
+            // User not logged in, get/create from form data
+            $email = $get($map['email'] ?? '');
+            if (empty($email)) return; // email required
 
-        $first_name = $get($map['first_name'] ?? '');
-        $last_name  = $get($map['last_name'] ?? '');
+            $first_name = $get($map['first_name'] ?? '');
+            $last_name  = $get($map['last_name'] ?? '');
 
-        // create or fetch user
-        $userHelper = new UserHelper();
-        $user_id = $userHelper->get_or_create_user($email, $first_name, $last_name);
+            // create or fetch user
+            $userHelper = new UserHelper();
+            $user_id = $userHelper->get_or_create_user($email, $first_name, $last_name);
+        } else {
+            error_log('FFWCS: Using logged-in user ID: ' . $user_id);
+        }
 
         // Get or create appropriate product based on donation type
         $frequency = trim(strtolower($insertData[$map['billing_period'] ?? 'frequency'] ?? ''));
