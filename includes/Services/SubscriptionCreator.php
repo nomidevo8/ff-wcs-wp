@@ -39,11 +39,10 @@ class SubscriptionCreator {
             'yearly'         => 'year',
         ];
 
-        // Map interval for special cases
         $billing_interval_map = [
             'daily'          => 1,
             'weekly'         => 1,
-            'every_two_week' => 2, // interval 2 = every 2 weeks
+            'every_two_week' => 2,
             'monthly'        => 1,
             'yearly'         => 1,
         ];
@@ -52,7 +51,6 @@ class SubscriptionCreator {
         $frequency = trim(strtolower($insertData[$map['billing_period'] ?? 'frequency'] ?? ''));
         error_log('FFWCS: Donation frequency: ' . $frequency);
 
-        // We'll create ONE order/subscription for the first donation and redirect to checkout
         $checkout_order = null;
 
         foreach ($donations as $donation) {
@@ -72,45 +70,68 @@ class SubscriptionCreator {
             }
             error_log('FFWCS: Product loaded. Product ID: ' . $product_id . ', Type: ' . $product->get_type());
 
-            // Handle based on frequency
             if ($frequency === 'one time') {
-                // ONE-TIME DONATION: Create simple order
                 $order = $this->create_one_time_order($user_id, $product, $amount, $fund, $insertData, $map);
-                if ($order && !$checkout_order) {
-                    $checkout_order = $order;
-                }
             } else {
-                // RECURRING DONATION: Create subscription
                 $billing_interval_input = trim(strtolower($insertData[$map['billing_interval'] ?? 'billing_interval'] ?? ''));
-                error_log('FFWCS: Billing interval input: ' . $billing_interval_input);
-
                 $billing_period = $billing_period_map[$billing_interval_input] ?? '';
                 $billing_interval = $billing_interval_map[$billing_interval_input] ?? 1;
-
-                error_log('FFWCS: Mapped billing period: ' . $billing_period);
-                error_log('FFWCS: Mapped billing interval: ' . $billing_interval);
 
                 if (empty($billing_period)) {
                     error_log('FFWCS: Invalid billing period. Subscription creation skipped.');
                     continue;
                 }
 
-                $order = $this->create_recurring_subscription($user_id, $product, $amount, $fund, $billing_period, $billing_interval, $insertData, $map, $donations);
-                if ($order && !$checkout_order) {
-                    $checkout_order = $order;
-                }
+                $order = $this->create_recurring_subscription(
+                    $user_id, $product, $amount, $fund,
+                    $billing_period, $billing_interval, $insertData, $map, $donations
+                );
+            }
+
+            if ($order && !$checkout_order) {
+                $checkout_order = $order;
             }
         }
 
-        // Return checkout URL if order was created
-        if ($checkout_order) {
-            $checkout_url = $checkout_order->get_checkout_payment_url();
-            error_log('FFWCS: Redirecting to checkout: ' . $checkout_url);
+        // -----------------------------------------------------------------
+        //  ONLY THIS BLOCK IS CHANGED – session + cookies + safe URL
+        // -----------------------------------------------------------------
+        if ( $checkout_order ) {
+            // Start session
+            if ( ! WC()->session ) {
+                WC()->initialize_session();
+            }
+            if ( ! WC()->session->has_session() ) {
+                WC()->session->set_customer_session_cookie( true );
+            }
+
+            // Clear cart
+            WC()->cart->empty_cart();
+
+            // Link order
+            WC()->session->set( 'order_awaiting_payment', $checkout_order->get_id() );
+
+            // Ensure order key
+            if ( ! $checkout_order->get_order_key() ) {
+                $checkout_order->set_order_key( wc_generate_order_key() );
+                $checkout_order->save();
+            }
+
+            // Let WC set cookies properly
+            do_action( 'woocommerce_set_cart_cookies', true );
+
+            // Use canonical pay-for-order URL
+            $checkout_url = wc_get_checkout_url() . 'order-pay/' . $checkout_order->get_id() . '/?pay_for_order=true&key=' . $checkout_order->get_order_key();
+
+            error_log('FFWCS: Redirecting to pay-for-order: ' . $checkout_url);
             return $checkout_url;
         }
 
+        // Fallback: return the standard checkout URL (may be empty if cart is empty)
+        error_log('FFWCS: No order to return payment URL for; returning null.');
         return null;
     }
+
 
     /**
      * Create a one-time donation order
@@ -164,6 +185,7 @@ class SubscriptionCreator {
      * 
      * @return WC_Order|null Returns the parent order for checkout
      */
+
     private function create_recurring_subscription($user_id, $product, $amount, $fund, $billing_period, $billing_interval, $insertData, $map, $donations) {
         // Check WooCommerce Subscriptions availability
         if (!function_exists('wcs_create_subscription')) {
@@ -176,6 +198,16 @@ class SubscriptionCreator {
             error_log('FFWCS: Product ID ' . $product->get_id() . ' is not a subscription product. Type: ' . $product->get_type());
             return null;
         }
+
+        // --------------------------------------------------------------
+        // FIX: DYNAMICALLY SET SUBSCRIPTION PERIOD & INTERVAL ON PRODUCT
+        // --------------------------------------------------------------
+        $product->update_meta_data('_subscription_period', $billing_period);           // e.g., 'week'
+        $product->update_meta_data('_subscription_period_interval', $billing_interval); // e.g., 1 or 2
+        $product->update_meta_data('_subscription_length', 0); // never expires
+        $product->save();
+
+        error_log("FFWCS: Updated product {$product->get_id()} → {$billing_interval} {$billing_period}(s)");
 
         // Create parent order first (pending payment)
         $order = wc_create_order(['status' => 'pending']);
@@ -201,14 +233,14 @@ class SubscriptionCreator {
         $order->calculate_totals();
         $order->save();
 
-        // Create subscription with proper arguments (status: pending initially)
+        // Create subscription
         $subscription = wcs_create_subscription([
             'order_id'        => $order->get_id(),
             'customer_id'     => $user_id,
             'billing_period'  => $billing_period,
             'billing_interval'=> $billing_interval,
-            'start_date'      => current_time('mysql'),
-            'status'          => 'pending', // Will activate after payment
+            // 'start_date'      => current_time('mysql'),
+            'status'          => 'pending',
         ]);
 
         if (!$subscription || is_wp_error($subscription)) {
@@ -228,31 +260,21 @@ class SubscriptionCreator {
 
         // Optional: set billing start date
         $start_date_input = $insertData[$map['billing_start_date'] ?? 'billing_start_date'] ?? '';
-
         if (!empty($start_date_input)) {
-            // Parse the submitted date
             $start_timestamp = strtotime($start_date_input);
-
-            if ($start_timestamp && $start_timestamp > time()) {
-                // WooCommerce Subscriptions expects MySQL datetime format
+            if ($start_timestamp && $start_timestamp >= strtotime('today')) {
                 $start_date_mysql = date('Y-m-d H:i:s', $start_timestamp);
+                $subscription->update_dates(['start' => $start_date_mysql]);
 
-                // Update the start date using official API
-                $subscription->update_dates([
-                    'start' => $start_date_mysql,
-                ]);
+                $next_payment_timestamp = strtotime("+{$billing_interval} {$billing_period}", $start_timestamp);
+                $next_payment_mysql = $next_payment_timestamp ? date('Y-m-d H:i:s', $next_payment_timestamp) : $start_date_mysql;
+                $subscription->update_dates(['next_payment' => $next_payment_mysql]);
 
-                // Also, adjust next payment to match start date (optional)
-                $subscription->update_dates([
-                    'next_payment' => $start_date_mysql,
-                ]);
-
-                error_log('FFWCS: Subscription start date set to ' . $start_date_mysql);
+                error_log("FFWCS: Subscription start: {$start_date_mysql}, next payment: {$next_payment_mysql}");
             } else {
                 error_log('FFWCS: Invalid or past billing start date — using default.');
             }
         }
-
 
         // Save donor & blog info
         update_post_meta($subscription->get_id(), '_ffwcs_donor_email', $insertData[$map['email'] ?? 'donor_email'] ?? '');
@@ -263,19 +285,15 @@ class SubscriptionCreator {
         update_post_meta($subscription->get_id(), '_ffwcs_card_number', $insertData[$map['card_number'] ?? 'donor_card_number'] ?? '');
         update_post_meta($subscription->get_id(), '_ffwcs_expiry_date', $insertData[$map['expiry_date'] ?? 'donor_expiry_date'] ?? '');
         update_post_meta($subscription->get_id(), '_ffwcs_security_code', $insertData[$map['security_code'] ?? 'donor_security_code'] ?? '');
-
-        // Save full donations array in subscription meta
         update_post_meta($subscription->get_id(), '_ffwcs_all_donations', $donations);
         update_post_meta($subscription->get_id(), '_ffwcs_donation_type', 'recurring');
 
-        // Finalize subscription
+        // Finalize
         $subscription->calculate_totals();
         $subscription->save();
         error_log('FFWCS: Subscription totals calculated and saved.');
 
-        // Update order note
         $order->add_order_note('Subscription created (ID: ' . $subscription->get_id() . '). Awaiting payment to activate.');
-
         error_log('FFWCS: Subscription created successfully for user ID ' . $user_id . ', subscription ID ' . $subscription->get_id() . '. Awaiting payment.');
         
         return $order;

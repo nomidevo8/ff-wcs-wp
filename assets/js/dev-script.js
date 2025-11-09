@@ -6,7 +6,11 @@ jQuery(document).ready(function ($) {
     let $visibleSelect = $('#ff_3_billing_start_date_select');
     if (!$visibleSelect.length && $hiddenStart.length) {
         $hiddenStart.after(`
-            <div class="ff-el-input--label asterisk-right"><label for="ff_3_billing_start_date_select" aria-label="Billing Interval">Billing Start Date</label></div>
+            <div class="ff-el-input--label asterisk-right">
+                <label for="ff_3_billing_start_date_select" aria-label="Billing Start Date">
+                    Billing Start Date
+                </label>
+            </div>
             <div class="ff-el-input--content">
                 <select id="ff_3_billing_start_date_select" class="ff-el-form-control">
                     <option value="">Select</option>
@@ -16,24 +20,33 @@ jQuery(document).ready(function ($) {
         $visibleSelect = $('#ff_3_billing_start_date_select');
     }
 
-    // Format date helper
-    const formatDate = (d) =>
+    // Format date for display (human-readable)
+    const formatDateDisplay = (d) =>
         d.toLocaleDateString('en-US', {
             month: 'short',
             day: 'numeric',
             year: 'numeric',
         });
 
+    // Format date for value (MySQL-compatible: YYYY-MM-DD)
+    const formatDateValue = (d) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     function updateBillingStartOptions() {
         const val = $interval.val();
         const today = new Date();
+        today.setHours(0, 0, 0, 0); // Normalize to midnight
 
         // Clear old options
         $visibleSelect.empty().append('<option value="">Select</option>');
 
         // Add "Today"
         $visibleSelect.append(
-            `<option value="${formatDate(today)}">Today (${formatDate(today)})</option>`
+            `<option value="${formatDateValue(today)}">Today (${formatDateDisplay(today)})</option>`
         );
 
         let stepDays = 0,
@@ -64,12 +77,17 @@ jQuery(document).ready(function ($) {
                 if (stepDays) d.setDate(today.getDate() + stepDays * i);
                 if (stepMonths) d.setMonth(today.getMonth() + stepMonths * i);
                 if (stepYears) d.setFullYear(today.getFullYear() + stepYears * i);
+                
                 const label = `Next ${i} ${val.replace(/_/g, ' ')}${i > 1 ? 's' : ''}`;
                 $visibleSelect.append(
-                    `<option value="${formatDate(d)}">${label} (${formatDate(d)})</option>`
+                    `<option value="${formatDateValue(d)}">${label} (${formatDateDisplay(d)})</option>`
                 );
             }
         }
+
+        // Debug: Log the hidden field value
+        console.log('Hidden field name:', $hiddenStart.attr('name'));
+        console.log('Hidden field value:', $hiddenStart.val());
     }
 
     // On interval change, repopulate options
@@ -79,5 +97,14 @@ jQuery(document).ready(function ($) {
     $(document).on('change', '#ff_3_billing_start_date_select', function () {
         const selected = $(this).val();
         $hiddenStart.val(selected).trigger('change');
+        
+        // Debug logging
+        console.log('Start date selected:', selected);
+        console.log('Hidden field updated to:', $hiddenStart.val());
     });
+
+    // Initialize on page load if interval already has a value
+    if ($interval.val()) {
+        updateBillingStartOptions();
+    }
 });
