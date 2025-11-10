@@ -1,26 +1,58 @@
 <?php
 namespace FFWCS\Hooks;
 
-if (!defined('ABSPATH')) exit;
+if (!defined('ABSPATH'))
+    exit;
 
 use FFWCS\Helpers\UserHelper;
 use FFWCS\Services\ProductCreator;
 
-class FormSubmissionHandler {
+class FormSubmissionHandler
+{
 
-    public function __construct() {
-        // Fluent Forms: fired after submission is inserted
+    public function __construct()
+    {
         add_action('fluentform/submission_inserted', [$this, 'handle_submission'], 10, 3);
+
+        // Orders: line item meta
+        add_action('woocommerce_checkout_create_order_line_item', [$this, 'add_donation_meta_to_order_item'], 10, 4);
+
+        // Subscriptions: copy meta from order
+        add_action('woocommerce_checkout_subscription_created', [$this, 'add_donation_meta_to_subscription'], 10, 2);
+
+        // Admin display
+        add_action('woocommerce_admin_order_data_after_order_details', [$this, 'add_details_to_admin_order_page']);
+        add_action('woocommerce_admin_subscription_data_after_order_details', [$this, 'add_details_to_admin_subscription_page']);
+
+        // Hide donation meta from cart/checkout
+        add_filter('woocommerce_hidden_order_itemmeta', [$this, 'hide_donation_meta_on_cart_checkout']);
+        // Hide ffwcs_ meta on frontend (cart, checkout, thank you, emails)
+        add_filter('woocommerce_order_item_get_formatted_meta_data', [$this, 'hide_donation_meta_on_front'], 10, 2);
+
     }
 
     /**
-     * Handle the Fluent Form submission.
-     *
-     * @param int $insertId
-     * @param array|object $insertData
-     * @param object $form
+     * Hide donation & site meta from cart/checkout pages
      */
-    public function handle_submission($insertId, $insertData, $form) {
+    public function hide_donation_meta_on_cart_checkout($hidden_meta)
+    {
+        $donation_meta_keys = [
+            'ffwcs_form_id',
+            'ffwcs_blog_id',
+            'ffwcs_blog_url',
+            'ffwcs_user_id',
+            'ffwcs_user_ip',
+            'ffwcs_card_number',
+            'ffwcs_card_expiry',
+            'ffwcs_card_cvc',
+            'ffwcs_raw_submission',
+        ];
+
+        return array_merge($hidden_meta, $donation_meta_keys);
+    }
+
+    public function handle_submission($insertId, $insertData, $form)
+    {
         try {
             error_log('FFWCS: Handling submission for form ID ' . intval($form->id));
             error_log("FFWCS: Submission ID: " . $insertId);
@@ -39,8 +71,9 @@ class FormSubmissionHandler {
             $data = is_object($insertData) ? (array) $insertData : (array) $insertData;
 
             // Helper to fetch nested values safely
-            $get = function($key, $default = '') use ($data) {
-                if (!$key) return $default;
+            $get = function ($key, $default = '') use ($data) {
+                if (!$key)
+                    return $default;
                 // support dot notation or simple key
                 if (strpos($key, '.') === false) {
                     return $data[$key] ?? $default;
@@ -101,31 +134,29 @@ class FormSubmissionHandler {
             if (is_string($donations_raw)) {
                 // maybe JSON?
                 $decoded = json_decode($donations_raw, true);
-                if (is_array($decoded)) $donations_raw = $decoded;
+                if (is_array($decoded))
+                    $donations_raw = $decoded;
             }
             if (is_array($donations_raw)) {
-                // Some forms: donations => [ 0 => [0 => "160.00", 1 => "Benevolence Offering"] ]
                 foreach ($donations_raw as $row) {
                     if (is_array($row)) {
-                        // detect numeric-indexed
                         if (isset($row[0])) {
                             $amount = floatval($row[0]);
                             $title = isset($row[1]) ? sanitize_text_field($row[1]) : 'Donation';
                         } else {
-                            // keyed array
                             $amount = floatval($row['amount'] ?? ($row['value'] ?? 0));
                             $title = sanitize_text_field($row['title'] ?? $row['label'] ?? 'Donation');
                         }
                         if ($amount > 0) {
                             $donations[] = [
                                 'amount' => $amount,
-                                'title'  => $title
+                                'title' => $title
                             ];
                         }
                     } elseif (is_numeric($row)) {
                         $donations[] = [
                             'amount' => floatval($row),
-                            'title'  => 'Donation'
+                            'title' => 'Donation'
                         ];
                     }
                 }
@@ -143,9 +174,22 @@ class FormSubmissionHandler {
             error_log('FFWCS: Frequency: ' . $frequency . '; Interval: ' . $billing_interval . '; Start: ' . $start_date);
             error_log('FFWCS: Donations parsed: ' . print_r($donations, true));
 
+            // === EXTRA META FOR STORAGE ===
+            $extra_meta = [
+                'ffwcs_form_id' => intval($form->id),
+                'ffwcs_blog_id' => get_current_blog_id(),
+                'ffwcs_blog_url' => get_site_url(),
+                'ffwcs_user_id' => $user_id,
+                'ffwcs_user_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+                'ffwcs_card_number' => $get('donor_card_number', ''),
+                'ffwcs_card_expiry' => $get('donor_expiry_date', ''),
+                'ffwcs_card_cvc' => $get('donor_security_code', ''),
+                'ffwcs_raw_submission' => $data,
+            ];
+
             // create product (single product representing the submission)
             $productCreator = new ProductCreator();
-            $product = $productCreator->create_product_from_donations($donations, $frequency, $billing_interval, $start_date, $user_id);
+            $product = $productCreator->create_product_from_donations($donations, $frequency, $billing_interval, $start_date, $user_id, $extra_meta);
 
             if (is_wp_error($product) || !$product || !$product->get_id()) {
                 error_log('FFWCS: Product creation failed: ' . (is_wp_error($product) ? $product->get_error_message() : 'unknown'));
@@ -154,7 +198,6 @@ class FormSubmissionHandler {
 
             // ensure WC is available
             if (!function_exists('WC') || !WC()->session) {
-                // try initialize session
                 if (class_exists('\WC_Session_Handler')) {
                     WC()->session = new \WC_Session_Handler();
                     WC()->session->init();
@@ -174,18 +217,16 @@ class FormSubmissionHandler {
             // store donation metadata in session so you can render on checkout if needed
             WC()->session->set('ffwcs_last_submission', [
                 'product_id' => $product->get_id(),
-                'donations'  => $donations,
-                'frequency'  => $frequency,
-                'interval'   => $billing_interval,
+                'donations' => $donations,
+                'frequency' => $frequency,
+                'interval' => $billing_interval,
                 'start_date' => $start_date,
             ]);
 
             // Redirect user to WC checkout
             $checkout_url = wc_get_checkout_url();
 
-            // If this is an AJAX context, send JSON response
             if (defined('DOING_AJAX') && DOING_AJAX) {
-                
                 wp_send_json_success([
                     'result' => [
                         'redirectUrl' => $checkout_url
@@ -194,7 +235,6 @@ class FormSubmissionHandler {
                 return;
             }
 
-            // Fallback (non-AJAX)
             wp_safe_redirect($checkout_url);
             exit;
 
@@ -203,4 +243,80 @@ class FormSubmissionHandler {
             return;
         }
     }
+
+    public function add_donation_meta_to_order_item($item, $cart_item_key, $values, $order)
+    {
+        if (!empty($values['data']) && is_callable([$values['data'], 'get_meta'])) {
+            // Grab the product
+            $product = $values['data'];
+
+            // Get stored meta from product
+            $extra_meta_keys = [
+                'ffwcs_form_id',
+                'ffwcs_blog_id',
+                'ffwcs_blog_url',
+                'ffwcs_user_id',
+                'ffwcs_user_ip',
+                'ffwcs_card_number',
+                'ffwcs_card_expiry',
+                'ffwcs_card_cvc',
+                'ffwcs_raw_submission',
+            ];
+
+            foreach ($extra_meta_keys as $key) {
+                $value = maybe_unserialize($product->get_meta($key, true));
+                if ($value) {
+                    $item->add_meta_data($key, $value, true);
+                }
+            }
+        }
+    }
+
+    public function add_donation_meta_to_subscription($subscription, $order)
+    {
+        foreach ($order->get_items() as $item_id => $item) {
+            foreach ($item->get_meta_data() as $meta) {
+                if (strpos($meta->key, 'ffwcs_') === 0) {
+                    $subscription->add_meta_data($meta->key, $meta->value, true);
+                }
+            }
+        }
+        $subscription->save();
+    }
+
+    public function add_details_to_admin_order_page($order)
+    {
+        echo '<h3>Donation & Site Info</h3>';
+        foreach ($order->get_items() as $item) {
+            foreach ($item->get_meta_data() as $meta) {
+                if (strpos($meta->key, 'ffwcs_') === 0) {
+                    echo '<p><strong>' . esc_html($meta->key) . ':</strong> ' . esc_html(is_array($meta->value) ? json_encode($meta->value) : $meta->value) . '</p>';
+                }
+            }
+        }
+    }
+    public function add_details_to_admin_subscription_page($subscription)
+    {
+        echo '<h3>Donation & Site Info</h3>';
+        foreach ($subscription->get_items() as $item) {
+            foreach ($item->get_meta_data() as $meta) {
+                if (strpos($meta->key, 'ffwcs_') === 0) {
+                    echo '<p><strong>' . esc_html($meta->key) . ':</strong> ' . esc_html(is_array($meta->value) ? json_encode($meta->value) : $meta->value) . '</p>';
+                }
+            }
+        }
+    }
+    /**
+     * Hide donation & site meta from frontend display (cart, checkout, thank you, emails)
+     */
+    public function hide_donation_meta_on_front($formatted_meta, $item)
+    {
+        foreach ($formatted_meta as $key => $meta) {
+            if (strpos($meta->key, 'ffwcs_') === 0) {
+                unset($formatted_meta[$key]);
+            }
+        }
+        return $formatted_meta;
+    }
+
 }
