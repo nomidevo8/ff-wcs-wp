@@ -4,9 +4,9 @@ margin: auto;}
 
 
 /* Card Number */
-#ff_3_donor_card_number,
-#ff_3_donor_expiry_date,
-#ff_3_donor_security_code {
+#ff_2_donor_card_number,
+#ff_2_donor_expiry_date,
+#ff_2_donor_security_code {
     padding: 12px 14px;
     font-size: 16px;
     border: 1px solid #ccd0d5;
@@ -18,18 +18,18 @@ margin: auto;}
 }
 
 /* Focus state */
-#ff_3_donor_card_number:focus,
-#ff_3_donor_expiry_date:focus,
-#ff_3_donor_security_code:focus {
+#ff_2_donor_card_number:focus,
+#ff_2_donor_expiry_date:focus,
+#ff_2_donor_security_code:focus {
     border-color: #6772e5;
     box-shadow: 0 0 0 2px rgba(103, 114, 229, 0.2);
     outline: none;
 }
 
 /* Labels */
-label[for="ff_3_donor_card_number"],
-label[for="ff_3_donor_expiry_date"],
-label[for="ff_3_donor_security_code"] {
+label[for="ff_2_donor_card_number"],
+label[for="ff_2_donor_expiry_date"],
+label[for="ff_2_donor_security_code"] {
     display: block;
     margin-bottom: 4px;
     font-size: 14px;
@@ -37,8 +37,8 @@ label[for="ff_3_donor_security_code"] {
 }
 
 /* Placeholder */
-#ff_3_donor_card_number::placeholder,
-#ff_3_donor_expiry_date::placeholder,
-#ff_3_donor_security_code::placeholder {
+#ff_2_donor_card_number::placeholder,
+#ff_2_donor_expiry_date::placeholder,
+#ff_2_donor_security_code::placeholder {
     color: #aab7c4;
 }

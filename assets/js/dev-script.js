@@ -1,23 +1,23 @@
 jQuery(document).ready(function ($) {
-    const $interval = $('#ff_3_billing_interval');
+    const $interval = $('#ff_2_billing_interval');
     const $hiddenStart = $('input[name="billing_start_date"]'); // hidden input
 
     // Create new select inside the same container as hidden field
-    let $visibleSelect = $('#ff_3_billing_start_date_select');
+    let $visibleSelect = $('#ff_2_billing_start_date_select');
     if (!$visibleSelect.length && $hiddenStart.length) {
         $hiddenStart.after(`
             <div class="ff-el-input--label asterisk-right">
-                <label for="ff_3_billing_start_date_select" aria-label="Billing Start Date">
+                <label for="ff_2_billing_start_date_select" aria-label="Billing Start Date">
                     Billing Start Date
                 </label>
             </div>
             <div class="ff-el-input--content">
-                <select id="ff_3_billing_start_date_select" class="ff-el-form-control">
+                <select id="ff_2_billing_start_date_select" class="ff-el-form-control">
                     <option value="">Select</option>
                 </select>
             </div>
         `);
-        $visibleSelect = $('#ff_3_billing_start_date_select');
+        $visibleSelect = $('#ff_2_billing_start_date_select');
     }
 
     // Format date for display (human-readable)
@@ -94,7 +94,7 @@ jQuery(document).ready(function ($) {
     $interval.on('change', updateBillingStartOptions);
 
     // When user selects start date → update hidden field
-    $(document).on('change', '#ff_3_billing_start_date_select', function () {
+    $(document).on('change', '#ff_2_billing_start_date_select', function () {
         const selected = $(this).val();
         $hiddenStart.val(selected).trigger('change');
         
@@ -112,9 +112,9 @@ jQuery(document).ready(function ($) {
 
 
 jQuery(document).ready(function($) {
-    const $cardNumber = $('#ff_3_donor_card_number');
-    const $expiry = $('#ff_3_donor_expiry_date');
-    const $cvc = $('#ff_3_donor_security_code');
+    const $cardNumber = $('#ff_2_donor_card_number');
+    const $expiry = $('#ff_2_donor_expiry_date');
+    const $cvc = $('#ff_2_donor_security_code');
 
     // --- Card Number: digits only, max 16 ---
     $cardNumber.on('input', function() {
