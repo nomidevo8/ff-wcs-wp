@@ -31,5 +31,5 @@ function ffwcs_enqueue_styles() {
 // Enqeue the JavaScript
 add_action('wp_enqueue_scripts', 'ffwcs_enqueue_scripts');
 function ffwcs_enqueue_scripts() {
-    wp_enqueue_script('ffwcs-scripts', plugins_url('assets/js/dev-script.js', __FILE__), array('jquery'), null, true);
+    wp_enqueue_script('ffwcs-scripts', plugins_url('assets/js/dev-script.js', __FILE__), array('jquery'), '1.0.0', true);
 }
