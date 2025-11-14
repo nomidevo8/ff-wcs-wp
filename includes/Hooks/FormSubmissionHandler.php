@@ -28,6 +28,8 @@ class FormSubmissionHandler
         add_filter('woocommerce_hidden_order_itemmeta', [$this, 'hide_donation_meta_on_cart_checkout']);
         // Hide ffwcs_ meta on frontend (cart, checkout, thank you, emails)
         add_filter('woocommerce_order_item_get_formatted_meta_data', [$this, 'hide_donation_meta_on_front'], 10, 2);
+        add_filter('woocommerce_checkout_get_value', [$this, 'prefill_checkout_fields'], 10, 2);
+        add_filter('woocommerce_checkout_fields', [$this, 'simplify_checkout_fields']);
 
     }
 
@@ -42,9 +44,6 @@ class FormSubmissionHandler
             'ffwcs_blog_url',
             'ffwcs_user_id',
             'ffwcs_user_ip',
-            'ffwcs_card_number',
-            'ffwcs_card_expiry',
-            'ffwcs_card_cvc',
             'ffwcs_raw_submission',
         ];
 
@@ -102,7 +101,8 @@ class FormSubmissionHandler
             $frequency_key = $map['billing_period'] ?? 'frequency';
             $interval_key = $map['billing_interval'] ?? 'billing_interval';
             $start_date_key = $map['billing_start_date'] ?? 'billing_start_date';
-
+            $first_name = '';
+            $last_name = '';
             // get or create user
             $user_id = get_current_user_id();
             if (!$user_id) {
@@ -181,9 +181,6 @@ class FormSubmissionHandler
                 'ffwcs_blog_url' => get_site_url(),
                 'ffwcs_user_id' => $user_id,
                 'ffwcs_user_ip' => $_SERVER['REMOTE_ADDR'] ?? '',
-                'ffwcs_card_number' => $get('donor_card_number', ''),
-                'ffwcs_card_expiry' => $get('donor_expiry_date', ''),
-                'ffwcs_card_cvc' => $get('donor_security_code', ''),
                 'ffwcs_raw_submission' => $data,
             ];
 
@@ -221,6 +218,9 @@ class FormSubmissionHandler
                 'frequency' => $frequency,
                 'interval' => $billing_interval,
                 'start_date' => $start_date,
+                'first_name' => $first_name,
+                'last_name' => $last_name,
+                'email' => $email,
             ]);
 
             // Redirect user to WC checkout
@@ -257,9 +257,6 @@ class FormSubmissionHandler
                 'ffwcs_blog_url',
                 'ffwcs_user_id',
                 'ffwcs_user_ip',
-                'ffwcs_card_number',
-                'ffwcs_card_expiry',
-                'ffwcs_card_cvc',
                 'ffwcs_raw_submission',
             ];
 
@@ -317,6 +314,50 @@ class FormSubmissionHandler
             }
         }
         return $formatted_meta;
+    }
+
+    public function prefill_checkout_fields($value, $input)
+    {
+        $last_submission = WC()->session->get('ffwcs_last_submission', []);
+
+        if (!$last_submission) {
+            return $value; // fallback if nothing in session
+        }
+
+        switch ($input) {
+            case 'billing_first_name':
+                return $last_submission['first_name'] ?? $value;
+            case 'billing_last_name':
+                return $last_submission['last_name'] ?? $value;
+            case 'billing_email':
+                return $last_submission['email'] ?? $value;
+            default:
+                return $value;
+        }
+    }
+
+    /**
+     * Remove unnecessary checkout fields
+     */
+    public function simplify_checkout_fields($fields)
+    {
+        $keep = ['billing_first_name', 'billing_last_name', 'billing_email', 'billing_phone'];
+
+        foreach ($fields['billing'] as $key => $field) {
+            if (!in_array($key, $keep)) {
+                unset($fields['billing'][$key]);
+            }
+        }
+
+        // Remove shipping fields
+        $fields['shipping'] = [];
+
+        // Remove account creation fields
+        if (isset($fields['account'])) {
+            $fields['account'] = [];
+        }
+
+        return $fields;
     }
 
 }

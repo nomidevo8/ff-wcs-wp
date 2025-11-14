@@ -292,9 +292,6 @@ class SubscriptionCreator {
         update_post_meta($subscription->get_id(), '_ffwcs_last_name', $insertData[$map['last_name'] ?? 'donpr_names.last_name'] ?? '');
         update_post_meta($subscription->get_id(), '_ffwcs_blog_id', $insertData[$map['blog_id'] ?? 'blog_id'] ?? 0);
         update_post_meta($subscription->get_id(), '_ffwcs_donation_fund', $fund);
-        update_post_meta($subscription->get_id(), '_ffwcs_card_number', $insertData[$map['card_number'] ?? 'donor_card_number'] ?? '');
-        update_post_meta($subscription->get_id(), '_ffwcs_expiry_date', $insertData[$map['expiry_date'] ?? 'donor_expiry_date'] ?? '');
-        update_post_meta($subscription->get_id(), '_ffwcs_security_code', $insertData[$map['security_code'] ?? 'donor_security_code'] ?? '');
         update_post_meta($subscription->get_id(), '_ffwcs_all_donations', $donations);
         update_post_meta($subscription->get_id(), '_ffwcs_donation_type', 'recurring');
 
